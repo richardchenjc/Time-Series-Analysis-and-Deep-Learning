@@ -9,30 +9,26 @@ produce a principled classical-ML baseline that reflects reasonable
 practitioner effort without competition-level tuning.
 
   M4 (monthly)
-    - Lags: [1..12, 24, 36]  (seasonal period + 2× + 3×)
+    - Lags: [1..12, 24, 36]
     - Rolling stats at windows 3 and 12 (quarterly + annual)
     - Date features: month
 
   M5 (daily, intermittent retail)
-    - Lags: [1..7, 14, 28]  (week + 2×, 4× = assignment horizon)
+    - Lags: [1..7, 14, 28]
     - Rolling stats at windows 7 and 28
     - Date features: dayofweek, month
     - Exog: SNAP days (3 states) + event flags (5 cols)
     - Objective: Tweedie (variance_power=1.5) for intermittent count data
 
   Traffic (hourly, strong daily+weekly periodicity)
-    - Lags: [1..24, 48, 168]  (day + 2 days + week)
-    - Rolling stats at windows 24 and 168 (daily + weekly)
+    - Lags: [1..24, 48, 168]
+    - Rolling stats at windows 24 and 168
     - Date features: hour, dayofweek
-    - (168-hour-of-week would be cleaner but requires a custom transform;
-      hour + dayofweek together span the same state space for LGBM.)
-
-All feature choices are frequency-justified (no blind grid search) and
-symmetric across models — every dataset gets the same quality of effort.
 
 Usage:
     python pipelines/run_lightgbm.py                # Full run
     python pipelines/run_lightgbm.py --smoke-test   # Quick validation
+    python pipelines/run_lightgbm.py --m4-only      # Re-run M4 only
 """
 
 import argparse
@@ -48,12 +44,8 @@ from pipelines.run_model import run_pipeline
 from data_prep.m5_prep import M5_EXOG_COLS
 
 
-# Per-dataset feature configuration. Each entry is a kwargs dict passed
-# straight into models.lightgbm.build(). Keeping this as data rather than
-# code makes it easy to scan and modify for the report description.
 _DATASET_FEATURE_CONFIGS = {
     "M4": {
-        # Monthly: capture annual seasonality + a slow-moving trend signal.
         "lags": list(range(1, 13)) + [24, 36],
         "lag_transforms": {
             3:  [RollingMean(window_size=3),  RollingStd(window_size=3)],
@@ -64,7 +56,6 @@ _DATASET_FEATURE_CONFIGS = {
         "objective": None,
     },
     "M5": {
-        # Daily retail: weekly rhythm + SNAP/event calendar + Tweedie loss.
         "lags": list(range(1, 8)) + [14, 28],
         "lag_transforms": {
             7:  [RollingMean(window_size=7),  RollingStd(window_size=7)],
@@ -75,7 +66,6 @@ _DATASET_FEATURE_CONFIGS = {
         "objective": "tweedie",
     },
     "Traffic": {
-        # Hourly: daily + weekly periodicity, no calendar features available.
         "lags": list(range(1, 25)) + [48, 168],
         "lag_transforms": {
             24:  [RollingMean(window_size=24),  RollingStd(window_size=24)],
@@ -106,12 +96,13 @@ def _factory(cfg):
     return _build
 
 
-def main(smoke_test: bool = False):
+def main(smoke_test: bool = False, m4_only: bool = False):
     run_pipeline(
         model_name="LightGBM",
         build_fn_for_cfg=_factory,
         needs_seed=True,
         smoke_test=smoke_test,
+        datasets=["M4"] if m4_only else None,
     )
 
 
@@ -119,5 +110,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run LightGBM on all datasets.")
     parser.add_argument("--smoke-test", action="store_true",
                         help="Run with minimal settings for quick validation")
+    parser.add_argument("--m4-only", action="store_true",
+                        help="Re-run on M4 only (used for cheap M4 fix re-runs)")
     args = parser.parse_args()
-    main(smoke_test=args.smoke_test)
+    main(smoke_test=args.smoke_test, m4_only=args.m4_only)

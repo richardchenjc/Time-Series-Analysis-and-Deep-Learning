@@ -5,19 +5,21 @@ This module is the core engine used by every per-model pipeline script.
 It loads each dataset, applies smoke-test overrides when requested, and
 calls the walk-forward evaluation for the given model.
 
+Per-model offset
+----------------
+Pipelines can pass `input_size_offset` to account for model-specific
+extra series-length requirements. DeepAR is the only model that needs
+this currently (offset=1 because of its autoregressive +1 timestamp).
+
 Usage (from a per-model pipeline):
     from pipelines.run_model import run_pipeline
     run_pipeline("PatchTST", factory_fn, needs_seed=True, smoke_test=False)
+    run_pipeline("DeepAR", factory_fn, needs_seed=True, input_size_offset=1)
 """
-
-# Force UTF-8 output on Windows consoles (cp1252 can't encode → ✗ ✓ etc.).
-# Must run before any print() in this module or downstream modules.
-import sys
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 import time
 import pandas as pd
+import sys
 from pathlib import Path
 from typing import Callable
 
@@ -48,8 +50,10 @@ def run_pipeline(
     build_fn_for_cfg: Callable[[dict], Callable],
     needs_seed: bool,
     smoke_test: bool = False,
+    input_size_offset: int = 0,
+    datasets: list[str] | None = None,
 ) -> list[pd.DataFrame]:
-    """Run one model across all 3 datasets and save per-dataset result CSVs.
+    """Run one model across all 3 datasets (or a subset) and save per-dataset CSVs.
 
     Parameters
     ----------
@@ -64,6 +68,12 @@ def run_pipeline(
     smoke_test : bool
         If True, use minimal settings (fewer series, 1 seed, 1 window,
         10 training steps) for quick end-to-end validation.
+    input_size_offset : int, default 0
+        Extra series-length headroom required beyond input_size + horizon.
+        Pass 1 for DeepAR; 0 for everything else.
+    datasets : list of str or None
+        Restrict the run to a subset of datasets (e.g. ["M4"] for M4-only
+        re-runs). None = run on all three datasets.
 
     Returns
     -------
@@ -73,15 +83,25 @@ def run_pipeline(
     mode = "SMOKE TEST" if smoke_test else "FULL RUN"
     print(f"\n{'#'*60}")
     print(f"# {model_name} — {mode}")
+    if input_size_offset:
+        print(f"# input_size_offset = {input_size_offset}")
+    if datasets is not None:
+        print(f"# datasets = {datasets}")
     print(f"{'#'*60}")
 
     seeds = [SEEDS[0]] if smoke_test else SEEDS
     max_steps = 10 if smoke_test else None
 
+    # Filter the dataset list if requested
+    active_datasets = (
+        DATASETS if datasets is None
+        else [(n, c, l) for (n, c, l) in DATASETS if n in datasets]
+    )
+
     all_results = []
     total_start = time.time()
 
-    for dataset_name, cfg, loader in DATASETS:
+    for dataset_name, cfg, loader in active_datasets:
         n_series = _SMOKE_SERIES[dataset_name] if smoke_test else cfg["n_series_sample"]
         n_windows = 1 if smoke_test else cfg["walk_forward_windows"]
 
@@ -92,14 +112,11 @@ def run_pipeline(
 
         t0 = time.time()
         try:
-            # Load and concatenate train+test into one full DataFrame
             df_train, df_test = loader(n_series=n_series)
             df_full = pd.concat([df_train, df_test], ignore_index=True)
 
-            # Build a dataset-specific factory closure
             build_model_fn = build_fn_for_cfg(cfg)
 
-            # Run walk-forward evaluation
             results = run_walk_forward(
                 df_full=df_full,
                 dataset_name=dataset_name,
@@ -114,6 +131,7 @@ def run_pipeline(
                 needs_seed=needs_seed,
                 max_steps=max_steps,
                 max_train_size=cfg.get("max_train_size"),
+                input_size_offset=input_size_offset,
             )
             all_results.append(results)
             print(f"\n  ✓ {dataset_name} done in {time.time() - t0:.1f}s")

@@ -1,13 +1,37 @@
-neuralforecast
-statsforecast
-mlforecast
-datasetsforecast
-lightgbm
-pandas
-numpy
-matplotlib
-seaborn
-scikit-learn
-statsmodels
-torch
-utilsforecast
+# DSS5104 CA2 — Pinned Dependencies
+# Generated from a working environment: Python 3.12, RTX 5070 Ti, CUDA 12.8
+# Install: pip install -r requirements.txt
+# For CUDA GPU support: pip install torch --index-url https://download.pytorch.org/whl/cu128
+
+# Core forecasting libraries
+neuralforecast>=1.7.0
+statsforecast>=2.0.0
+mlforecast>=1.0.0
+datasetsforecast>=0.0.8
+
+# ML / boosting
+lightgbm>=4.0
+
+# Data handling
+pandas>=2.0
+numpy>=1.24
+
+# Visualization
+matplotlib>=3.7
+seaborn>=0.13
+
+# ML utilities
+scikit-learn>=1.3
+
+# Deep learning backend (CPU version installed by default;
+# for GPU, install separately: pip install torch --index-url https://download.pytorch.org/whl/cu128)
+torch>=2.0
+
+# Forecasting utilities
+utilsforecast>=0.1.0
+
+# Statistical analysis (for EDA: ADF, KPSS, STL decomposition)
+statsmodels>=0.14.0
+
+# Optional: for reading prediction parquet files
+pyarrow>=14.0
